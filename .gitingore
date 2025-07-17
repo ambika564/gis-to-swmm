@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+*.asc
+*.wkt
+*.inp
+*.shp
+*.gpkg

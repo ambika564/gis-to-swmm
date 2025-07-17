@@ -4,6 +4,7 @@
 
 import argparse
 from gis_to_swmm.run import run_model, run_adaptive_dissolve
+from gis_to_swmm.run import finalize_swmm_from_dissolved
 
 def main():
     parser = argparse.ArgumentParser(
@@ -26,6 +27,17 @@ def main():
     parser_diss.add_argument('--tile', type=int, default=1000, help='Tile size (default: 1000)')
     parser_diss.add_argument('--no-tiling', action='store_true', help='Disable tiling')
 
+    parser_merge = subparsers.add_parser("merge", help="Merge dissolved GPKG to SWMM-ready .inp")
+    parser_merge.add_argument('--merged', required=True, help='Path to dissolved .gpkg file')
+    parser_merge.add_argument('--original', required=True, help='Original shapefile used for dissolve')
+    parser_merge.add_argument('--output', required=True, help='Output SWMM .inp file')
+
+    parser_model.add_argument('--dissolve-after-model', action='store_true',
+                            help='Run adaptive dissolve immediately after raster-based model')
+    
+    run_model(args.dem, args.flowdir, args.landuse, args.output, run_dissolve=args.dissolve_after_model)
+
+    
     # Parse arguments
     args = parser.parse_args()
 
@@ -34,6 +46,8 @@ def main():
         run_model(args.dem, args.flowdir, args.landuse, args.output)
     elif args.command == "dissolve":
         run_adaptive_dissolve(args.input, args.output, use_tiling=not args.no_tiling)
+    elif args.command == "merge":
+        finalize_swmm_from_dissolved(args.merged, args.original, args.output)
     else:
         parser.print_help()
 
