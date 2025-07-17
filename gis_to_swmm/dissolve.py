@@ -152,8 +152,9 @@ def preprocess_and_run(input_file, output_file, use_tiling=True, tile_size=1000)
     merged.to_file(output_file, driver="GPKG")
     logger.info(f"✅ Done! Output saved to: {output_file}")
 
-# # ========================== Execution ==============================
-# if __name__ == "__main__":
-#     input_file = "Y:/GIStoSWMM_PROJECT/turku_trial/out/trial_data/subcatchs_trial.shp"
-#     output_file = "Y:/GIStoSWMM_PROJECT/turku_trial/out/trial_data/subcatchs_merged.gpkg"
-#     preprocess_and_run(input_file, output_file, use_tiling=True, tile_size=1000)
+# ========================== Wrapper for Import =============================
+def dissolve_subcatchments(input_file, output_file, use_tiling=True, tile_size=1000):
+    """
+    Wrapper for backward compatibility. Calls preprocess_and_run with the same arguments.
+    """
+    return preprocess_and_run(input_file, output_file, use_tiling=use_tiling, tile_size=tile_size)

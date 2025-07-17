@@ -2,21 +2,26 @@
 name = "gis-to-swmm"
 version = "0.1.0"
 description = "Convert GIS raster and vector data into SWMM5-compatible hydrologic models"
-authors = [{ name="Ambika Khadka", email="ambika.khadka@iceye.com", intial contributors: "Lassi Warsta,  }]
+authors = [
+    { name = "Ambika Khadka", email = "ambika.khadka@iceye.com" },
+    { name = "Lassi Warsta" }
+]
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
 
-dependencies = [
-    "numpy",
-    "pandas",
-    "rasterio",
-    "shapely",
-    "geopandas",
-]
+[tool.poetry.dependencies]
+python = ">=3.8"
+numpy = "*"
+pandas = "*"
+rasterio = "*"
+shapely = "*"
+fiona = ">=1.9"
+geopandas = ">=0.13"
 
 [project.scripts]
 gis-to-swmm = "cli:main"
+
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

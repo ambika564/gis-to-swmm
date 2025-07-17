@@ -2,6 +2,8 @@
 
 ##ASCII writer
 import numpy as np
+from gis_to_swmm.cell import Cell
+from typing import List
 
 def save_ascii_raster(path, array, transform, nodata=-9999):
     nrows, ncols = array.shape
@@ -24,9 +26,8 @@ def save_ascii_raster(path, array, transform, nodata=-9999):
             f.write(row_fmt + "\n")
 
 ##wkt writer for subcatchment polygons
-from cell import Cell
 
-def save_subcatchments_wkt(path, cells: list[Cell]):
+def save_subcatchments_wkt(path, cells: List[Cell]):
     with open(path, "w") as f:
         f.write("id;wkt;name;outlet;area_m2;slope_pct;elevation;landuse\n")
 
@@ -37,7 +38,7 @@ def save_subcatchments_wkt(path, cells: list[Cell]):
                     f"{cell.elevation};{cell.landuse}\n")
 
 ##wkt writer for flow routes
-def save_flowlines_wkt(path, cells: list[Cell]):
+def save_flowlines_wkt(path, cells: List[Cell]):
     with open(path, "w") as f:
         f.write("id;wkt;from;to\n")
 
@@ -47,19 +48,130 @@ def save_flowlines_wkt(path, cells: list[Cell]):
                 f.write(f"{i+1};{line};{cell.name};{cell.outlet}\n")
 
 # .inp writer for SWMM5
-def save_swmm_inp(path, cells: list[Cell]):
+def save_swmm_inp(
+    path, cells,
+    junctions=None, conduits=None,
+    header=None, catchment_props=None, evaporation=None, temperature=None,
+    inflows=None, timeseries=None, report=None, snowpacks=None, raingages=None,
+    symbols=None, outfalls=None, pumps=None, pump_curves=None,
+    dwf=None, patterns=None, losses=None, storage=None, xsections=None
+):
     with open(path, "w") as f:
         f.write("[TITLE]\n;; Created by gis-to-swmm\n\n")
 
-        f.write("[OPTIONS]\n; Add defaults or user-defined\n\n")
+        if header:
+            f.write("[OPTIONS]\n")
+            header.write_to_stream(f)
+            f.write("\n")
 
-        f.write("[SUBCATCHMENTS]\n")
-        f.write(";;Name   Raingage  Outlet   Area     %Imperv Width   %Slope   CurbLen  SnowPack\n")
+        if evaporation:
+            f.write("[EVAPORATION]\n")
+            evaporation.write_to_stream(f)
+            f.write("\n")
 
+        if temperature:
+            f.write("[TEMPERATURE]\n")
+            temperature.write_to_stream(f)
+            f.write("\n")
+
+        if raingages:
+            f.write("[RAINGAGES]\n")
+            raingages.write_to_stream(f)
+            f.write("\n")
+
+        f.write("[SUBCATCHMENTS]\n;;Subcatchment   Raingage  Outlet  Area  %Imperv  Width  %Slope  CurbLen  SnowPack\n")
         for cell in cells:
-            f.write(f"{cell.name:<8} {cell.raingage:<8} {cell.outlet:<8} "
-                    f"{cell.area/10000:.4f} {cell.imperv:>6} "
-                    f"{cell.flow_width:>6.2f} {cell.slope*100:>6.2f} "
-                    f"{cell.cell_size:>6.2f} {cell.snow_pack or '-'}\n")
+            if cell.landuse != 0:
+                f.write(f"{cell.name:<16}{cell.raingage:<10}{cell.outlet:<10}"
+                        f"{cell.area/10000:.4f}  {cell.imperv:>6}  {cell.flow_width:>6.2f}  "
+                        f"{cell.slope*100:>6.2f}  {cell.cell_size:>6.2f}  {cell.snow_pack or '-'}\n")
+        f.write("\n")
 
-        # You can add more sections like [SUBAREAS], [INFILTRATION], etc.
+        f.write("[SUBAREAS]\n;;Subcatchment   N-Imperv  N-Perv  S-Imperv  S-Perv  PctZero  RouteTo  PctRouted\n")
+        for cell in cells:
+            f.write(f"{cell.name:<16}{cell.N_Imperv:<10}{cell.N_Perv:<10}{cell.S_Imperv:<10}"
+                    f"{cell.S_Perv:<10}{cell.PctZero:<10}{cell.RouteTo:<10}{cell.PctRouted:<10}\n")
+        f.write("\n")
+
+        f.write("[INFILTRATION]\n;;Subcatchment   Suction  HydCon  IMDmax\n")
+        for cell in cells:
+            f.write(f"{cell.name:<16}{cell.Suction:<10}{cell.HydCon:<10}{cell.IMDmax:<10}\n")
+        f.write("\n")
+
+        if snowpacks:
+            f.write("[SNOWPACKS]\n")
+            snowpacks.write_to_stream(f)
+            f.write("\n")
+
+        if junctions:
+            f.write("[JUNCTIONS]\n;;Name   Invert   MaxDepth   InitDepth   SurDepth   Aponded\n")
+            junctions.write_to_stream(f)
+            f.write("\n")
+
+        if outfalls:
+            f.write("[OUTFALLS]\n")
+            outfalls.write_to_stream(f)
+            f.write("\n")
+
+        if storage:
+            f.write("[STORAGE]\n")
+            storage.write_to_stream(f)
+            f.write("\n")
+
+        if conduits:
+            f.write("[CONDUITS]\n")
+            conduits.write_to_stream(f)
+            f.write("\n")
+
+        if xsections:
+            f.write("[XSECTIONS]\n")
+            xsections.write_to_stream(f)
+            f.write("\n")
+
+        if losses:
+            f.write("[LOSSES]\n")
+            losses.write_to_stream(f)
+            f.write("\n")
+
+        if pumps:
+            f.write("[PUMPS]\n")
+            pumps.write_to_stream(f)
+            f.write("\n")
+
+        if pump_curves:
+            f.write("[CURVES]\n")
+            pump_curves.write_to_stream(f)
+            f.write("\n")
+
+        if inflows:
+            f.write("[INFLOWS]\n")
+            inflows.write_to_stream(f)
+            f.write("\n")
+
+        if timeseries:
+            f.write("[TIMESERIES]\n")
+            timeseries.write_to_stream(f)
+            f.write("\n")
+
+        if dwf:
+            f.write("[DWF]\n")
+            dwf.write_to_stream(f)
+            f.write("\n")
+
+        if patterns:
+            f.write("[PATTERNS]\n")
+            patterns.write_to_stream(f)
+            f.write("\n")
+
+        if report:
+            f.write("[REPORT]\n")
+            report.write_to_stream(f)
+            f.write("\n")
+
+        if symbols:
+            f.write("[SYMBOLS]\n")
+            symbols.write_to_stream(f)
+            f.write("\n")
+
+        f.write("[END]\n")
+

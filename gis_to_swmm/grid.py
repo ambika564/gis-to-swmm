@@ -1,9 +1,15 @@
 # grid.py
 
+from gis_to_swmm import cell
 import numpy as np
-from cell import Cell
-from definitions import LANDUSE
-from raster import Raster
+from gis_to_swmm.cell import Cell
+from gis_to_swmm.definitions import LANDUSE, Junction, Conduit
+from gis_to_swmm.raster import Raster
+from shapely.geometry import Point
+from shapely.ops import nearest_points
+from shapely.strtree import STRtree
+from typing import List
+import math
 
 class Grid:
     def __init__(self, dem: Raster, flowdir: Raster, landuse: Raster):
@@ -21,8 +27,13 @@ class Grid:
         for row in range(self.nrows):
             for col in range(self.ncols):
                 elev = self.dem.get_value_at(row, col)
-                land = int(self.landuse.get_value_at(row, col) or 0)
-                flow = int(self.flowdir.get_value_at(row, col) or -1)
+
+                # ⚠️ Handle NaNs or invalid values gracefully
+                land_raw = self.landuse.get_value_at(row, col)
+                land = 0 if land_raw is None or math.isnan(land_raw) else int(land_raw)
+
+                flow_raw = self.flowdir.get_value_at(row, col)
+                flow = -1 if flow_raw is None or math.isnan(flow_raw) else int(flow_raw)
 
                 x, y = self.dem.get_coords(row, col)
                 name = f"s{row}_{col}"
@@ -51,21 +62,20 @@ class Grid:
             (0, 1),   # E
         ]
 
-# compute neighbors and slopes
     def compute_neighbors_and_slopes(self):
         offsets = self.get_neighbor_offsets()
 
         for row in range(self.nrows):
             for col in range(self.ncols):
                 cell = self.cells[row, col]
-                if np.isnan(cell.elevation):
+                if cell is None or cell.elevation is None or math.isnan(cell.elevation):
                     continue
 
                 for i, (dr, dc) in enumerate(offsets):
                     r2, c2 = row + dr, col + dc
                     if 0 <= r2 < self.nrows and 0 <= c2 < self.ncols:
                         neighbor = self.cells[r2, c2]
-                        if neighbor is None or np.isnan(neighbor.elevation):
+                        if neighbor is None or neighbor.elevation is None or math.isnan(neighbor.elevation):
                             continue
 
                         dx = cell.center_x - neighbor.center_x
@@ -76,10 +86,6 @@ class Grid:
                         cell.neighbor_indices[i] = r2 * self.ncols + c2
                         cell.neighbor_distances[i] = dist
 
-                        # Optional: Save slope if needed later
-                        # cell.slopes[i] = slope
-
-# route based on flow direction
     def route_by_flowdir(self):
         for row in range(self.nrows):
             for col in range(self.ncols):
@@ -87,7 +93,7 @@ class Grid:
                 if cell.flowdir == -1:
                     continue
 
-                direction = cell.flowdir - 1  # Assuming 1–8 input
+                direction = cell.flowdir - 1  # SWMM assumes flowdir 1–8
                 if 0 <= direction < 8:
                     offset = self.get_neighbor_offsets()[direction]
                     r2, c2 = row + offset[0], col + offset[1]
@@ -101,6 +107,80 @@ class Grid:
                             dist = cell.neighbor_distances[direction]
                             if dist > 0:
                                 cell.flow_width = cell.area / dist
+
+    def route_to_junctions(self, junctions: List[Junction]):
+        """
+        Assign each cell an outlet if it overlaps or is near an open junction.
+        Uses nearest neighbor logic with STRtree spatial index.
+        """
+        # Create a list of geometry objects shared between STRtree and map
+        junction_geoms = []
+        coord_to_junction = {}
+
+        for j in junctions:
+            if j.is_open:
+                pt = Point(j.x, j.y)
+                junction_geoms.append(pt)
+                coord_to_junction[(pt.x, pt.y)] = j
+
+        tree = STRtree(junction_geoms)
+
+        # Assign each cell to its nearest junction
+        for row in self.cells:
+            for cell in row:
+                if cell is None or cell.landuse == 0:
+                    continue
+
+                cell_pt = Point(cell.center_x, cell.center_y)
+                nearest_idx = tree.nearest(cell_pt)         # Returns an int
+                nearest_geom = tree.geometries[nearest_idx] # ✅ Get geometry
+                nearest_junction = coord_to_junction[(nearest_geom.x, nearest_geom.y)]
+
+                # Set outlet info
+                cell.outlet = nearest_junction.name
+                cell.outlet_id = nearest_junction.name
+                cell.outlet_x = nearest_junction.x
+                cell.outlet_y = nearest_junction.y
+
+    def set_catchment_properties(self, catchment_table):
+        """
+        Assigns SWMM subcatchment and infiltration parameters to each cell based on landuse.
+        Matches cell.landuse to the 'landuse' column (index 0) in the table.
+        """
+        if not catchment_table or not hasattr(catchment_table, "df"):
+            print("⚠️ No catchment property table provided or invalid format.")
+            return
+
+        df = catchment_table.df
+
+        for row in self.cells:
+            for cell in row:
+                if cell is None or cell.landuse == 0:
+                    continue
+
+                match = df[df.iloc[:, 0] == str(cell.landuse)]  # Match landuse code as string
+                if match.empty:
+                    continue
+
+                props = match.iloc[0]
+
+                # Assign required subcatchment properties
+                cell.imperv = float(props[1])
+                cell.S_imperv = props[2]
+                cell.N_imperv = props[3]
+                cell.S_perv = props[4]
+                cell.N_perv = props[5]
+                cell.pct_zero = props[6]
+                cell.raingage = props[7]
+
+                # Optional fields (default if missing)
+                cell.hyd_con = props[8] if len(props) > 8 else "0.5"
+                cell.imdmax = props[9] if len(props) > 9 else "0.25"
+                cell.suction = props[10] if len(props) > 10 else "3.5"
+                cell.snow_pack = props[11] if len(props) > 11 else ""
+                cell.tag = props[12] if len(props) > 12 else ""
+
+
 
 
 # how to use it

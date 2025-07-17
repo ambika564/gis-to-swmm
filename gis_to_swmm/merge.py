@@ -6,8 +6,9 @@ import numpy as np
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from gis_to_swmm.cell import Cell
+from typing import List
 
-def merge_to_cells(merged_gpkg: str, original_shp: str) -> list[Cell]:
+def merge_to_cells(merged_gpkg: str, original_shp: str) -> List[Cell]:
     """
     Merges dissolved polygons back into SWMM-compatible Cell objects
     using area-weighted averaging of attributes.

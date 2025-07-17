@@ -1,6 +1,6 @@
 # cell.py
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Tuple
 
 @dataclass
 class Cell:
@@ -38,5 +38,11 @@ class Cell:
     elev_nodata: float = 0.0
     tag: str = "None"
     inlet_ids: List[int] = field(default_factory=list)
-    neighbor_indices: List[int] = field(default_factory=lambda: [-1]*8)
-    neighbor_distances: List[float] = field(default_factory=lambda: [0.0]*8)
+    neighbor_indices: List[int] = field(default_factory=lambda: [-1] * 8)
+    neighbor_distances: List[float] = field(default_factory=lambda: [0.0] * 8)
+    
+    outlet: str = "*"                         # name of the outlet node or subcatchment
+    outlet_id: int = -1                       # index of the outlet (cell or junction)
+    outlet_coord: Tuple[float, float] = (0.0, 0.0)  # coordinates of the outlet
+    is_sink: int = 0              # 0=routed, 1=sink, 2=forced (e.g., roof to junction)
+
