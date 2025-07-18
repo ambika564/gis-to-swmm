@@ -2,6 +2,9 @@
 
 ##ASCII writer
 import numpy as np
+import geopandas as gpd
+from shapely.geometry import Polygon
+from shapely.geometry import LineString
 from gis_to_swmm.cell import Cell
 from typing import List
 
@@ -27,25 +30,68 @@ def save_ascii_raster(path, array, transform, nodata=-9999):
 
 ##wkt writer for subcatchment polygons
 
-def save_subcatchments_wkt(path, cells: List[Cell]):
-    with open(path, "w") as f:
-        f.write("id;wkt;name;outlet;area_m2;slope_pct;elevation;landuse\n")
+# def save_subcatchments_wkt(path, cells: List[Cell]):
+#     with open(path, "w") as f:
+#         f.write("id;wkt;name;outlet;area_m2;slope_pct;elevation;landuse\n")
 
-        for i, cell in enumerate(cells):
-            x, y, s = cell.center_x, cell.center_y, 0.5 * cell.cell_size
-            polygon = f"POLYGON(({x-s} {y-s},{x-s} {y+s},{x+s} {y+s},{x+s} {y-s},{x-s} {y-s}))"
-            f.write(f"{i+1};{polygon};{cell.name};{cell.outlet};{cell.area};{cell.slope*100:.2f};"
-                    f"{cell.elevation};{cell.landuse}\n")
+#         for i, cell in enumerate(cells):
+#             x, y, s = cell.center_x, cell.center_y, 0.5 * cell.cell_size
+#             polygon = f"POLYGON(({x-s} {y-s},{x-s} {y+s},{x+s} {y+s},{x+s} {y-s},{x-s} {y-s}))"
+#             f.write(f"{i+1};{polygon};{cell.name};{cell.outlet};{cell.area};{cell.slope*100:.2f};"
+#                     f"{cell.elevation};{cell.landuse}\n")
+
+def save_subcatchments_geojson(path, cells: List['Cell']):
+    records = []
+
+    for i, cell in enumerate(cells):
+        x, y, s = cell.center_x, cell.center_y, 0.5 * cell.cell_size
+        poly = Polygon([
+            (x - s, y - s),
+            (x - s, y + s),
+            (x + s, y + s),
+            (x + s, y - s),
+            (x - s, y - s)
+        ])
+        records.append({
+            "id": i + 1,
+            "name": cell.name,
+            "outlet": cell.outlet,
+            "area_m2": cell.area,
+            "slope_pct": cell.slope * 100,
+            "elevation": cell.elevation,
+            "landuse": cell.landuse,
+            "geometry": poly
+        })
+
+    gdf = gpd.GeoDataFrame(records, crs="EPSG:4326")
+    gdf.to_file(path, driver="GeoJSON")
 
 ##wkt writer for flow routes
-def save_flowlines_wkt(path, cells: List[Cell]):
-    with open(path, "w") as f:
-        f.write("id;wkt;from;to\n")
+# def save_flowlines_wkt(path, cells: List[Cell]):
+#     with open(path, "w") as f:
+#         f.write("id;wkt;from;to\n")
 
-        for i, cell in enumerate(cells):
-            if cell.outlet_id != -1 and cell.outlet != "*":
-                line = f"LINESTRING({cell.center_x} {cell.center_y}, {cell.outlet_x} {cell.outlet_y})"
-                f.write(f"{i+1};{line};{cell.name};{cell.outlet}\n")
+#         for i, cell in enumerate(cells):
+#             if cell.outlet_id != -1 and cell.outlet != "*":
+#                 line = f"LINESTRING({cell.center_x} {cell.center_y}, {cell.outlet_x} {cell.outlet_y})"
+#                 f.write(f"{i+1};{line};{cell.name};{cell.outlet}\n")
+
+def save_flowlines_geojson(path, cells: List['Cell']):
+    flowlines = []
+
+    for i, cell in enumerate(cells):
+        # Only create a flowline if there's a valid outlet
+        if cell.outlet_id != -1 and cell.outlet != "*":
+            line = LineString([(cell.center_x, cell.center_y), (cell.outlet_x, cell.outlet_y)])
+            flowlines.append({
+                "id": i + 1,
+                "from": cell.name,
+                "to": cell.outlet,
+                "geometry": line
+            })
+
+    gdf = gpd.GeoDataFrame(flowlines, crs="EPSG:4326")
+    gdf.to_file(path, driver="GeoJSON")
 
 # .inp writer for SWMM5
 def save_swmm_inp(

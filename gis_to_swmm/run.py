@@ -6,18 +6,16 @@ from typing import List
 from shapely.geometry import box
 import geopandas as gpd
 
-from gis_to_swmm.dissolve import dissolve_subcatchments
 from gis_to_swmm.merge import merge_to_cells
-from gis_to_swmm.io_utils import (
-    save_swmm_inp,
-    save_subcatchments_wkt,
-    save_flowlines_wkt,
-    save_ascii_raster
-)
 from gis_to_swmm.cell import Cell
 from gis_to_swmm.raster import Raster
 from gis_to_swmm.grid import Grid
 from gis_to_swmm.table import parse_junctions
+from gis_to_swmm.dissolve import dissolve_subcatchments_geojson
+from gis_to_swmm.io_utils import (
+    save_subcatchments_geojson, save_flowlines_geojson, save_ascii_raster,
+    save_swmm_inp
+)
 
 def run_model(
     dem_path, flowdir_path, landuse_path, output_dir,
@@ -28,14 +26,6 @@ def run_model(
     symbols=None, outfalls=None, pumps=None, pump_curves=None,
     dwf=None, patterns=None, losses=None, storage=None, xsections=None
 ):
-    import datetime, os
-    from gis_to_swmm.raster import Raster
-    from gis_to_swmm.grid import Grid
-    from gis_to_swmm.io_utils import (
-        save_subcatchments_wkt, save_flowlines_wkt, save_ascii_raster,
-        save_swmm_inp
-    )
-    from gis_to_swmm.dissolve import dissolve_subcatchments
 
     # Load rasters
     dem = Raster.from_file(dem_path)
@@ -60,8 +50,8 @@ def run_model(
     output_prefix = os.path.join(output_dir, f"model_{timestamp}")
 
     print("💾 Writing outputs...")
-    save_subcatchments_wkt(f"{output_prefix}_subcatchments.wkt", cells)
-    save_flowlines_wkt(f"{output_prefix}_routing.wkt", cells)
+    save_subcatchments_geojson(f"{output_prefix}_subcatchments.geojson", cells)
+    save_flowlines_geojson(f"{output_prefix}_routing.geojson", cells)
     save_ascii_raster(f"{output_prefix}_elevation.asc", dem.array, dem.transform)
 
     save_swmm_inp(
@@ -88,12 +78,62 @@ def run_model(
         xsections=xsections
     )
 
+    # if run_dissolve:
+    #     subcatchments_path = f"{output_prefix}_subcatchments.geojson"
+    #     flowlines_path = f"{output_prefix}_routing.geojson"
+    #     output_path = f"{output_prefix}_dissolved.geojson"
+
+    #     dissolve_subcatchments_geojson(
+    #         subcatchment_file=subcatchments_path,
+    #         flowline_file=flowlines_path,
+    #         output_file=output_path
+    #     )
+
+    #     print("✅ Flow-aware subcatchment dissolve complete")
+
     if run_dissolve:
-        gdf = export_cells_as_shapefile(cells, crs=dem.crs)
-        shp_path = f"{output_prefix}_subcatchments.shp"
-        gdf.to_file(shp_path)
-        dissolve_subcatchments(shp_path, f"{output_prefix}_dissolved.gpkg")
-        print("✅ Adaptive dissolve complete")
+        subcatchments_path = f"{output_prefix}_subcatchments.geojson"
+        flowlines_path = f"{output_prefix}_routing.geojson"
+        dissolved_path = f"{output_prefix}_dissolved.geojson"
+
+        # Step 1: Run flow-aware dissolve
+        dissolve_subcatchments_geojson(
+            subcatchment_file=subcatchments_path,
+            flowline_file=flowlines_path,
+            output_file=dissolved_path
+        )
+        print("✅ Flow-aware subcatchment dissolve complete")
+
+        # Step 2: Convert dissolved subcatchments to SWMM cells
+        print("🔄 Building final SWMM-ready cells from dissolved subcatchments...")
+        final_cells = merge_to_cells(dissolved_path, subcatchments_path)
+
+        # Step 3: Write final .inp file with timestamp
+        dissolved_inp_path = os.path.join(output_dir, f"swmm_dissolved_{timestamp}.inp")
+        save_swmm_inp(
+            dissolved_inp_path, final_cells,
+            junctions=junctions,
+            conduits=conduits,
+            header=header,
+            catchment_props=catchment_props,
+            evaporation=evaporation,
+            temperature=temperature,
+            inflows=inflows,
+            timeseries=timeseries,
+            report=report,
+            snowpacks=snowpacks,
+            raingages=raingages,
+            symbols=symbols,
+            outfalls=outfalls,
+            pumps=pumps,
+            pump_curves=pump_curves,
+            dwf=dwf,
+            patterns=patterns,
+            losses=losses,
+            storage=storage,
+            xsections=xsections
+        )
+        print(f"✅ Final SWMM .inp file with dissolved subcatchments saved as: {dissolved_inp_path}")
 
 
 def export_cells_as_shapefile(cells: List[Cell], crs: str) -> gpd.GeoDataFrame:
@@ -120,52 +160,3 @@ def finalize_swmm_from_dissolved(merged_gpkg: str, original_shp: str, output_inp
     save_swmm_inp(output_inp, cells)
     print(f"✅ Final SWMM .inp file saved to: {output_inp}")
 
-
-# from gis_to_swmm.raster import Raster
-# from gis_to_swmm.grid import Grid
-# from gis_to_swmm.io_utils import (
-#     save_ascii_raster,
-#     save_subcatchments_wkt,
-#     save_flowlines_wkt,
-#     save_swmm_inp,
-# )
-# from gis_to_swmm.dissolve import dissolve_subcatchments
-
-# def run_model(
-#     dem_path: str,
-#     flowdir_path: str,
-#     landuse_path: str,
-#     output_prefix: str
-# ):
-#     # Load raster data
-#     print("🔍 Loading rasters...")
-#     dem = Raster.from_file(dem_path)
-#     flowdir = Raster.from_file(flowdir_path)
-#     landuse = Raster.from_file(landuse_path)
-
-#     # Build grid
-#     print("🧱 Building computational grid...")
-#     grid = Grid(dem, flowdir, landuse)
-#     grid.compute_neighbors_and_slopes()
-#     grid.route_by_flowdir()
-
-#     # Flatten cells
-#     print("📦 Collecting cells...")
-#     cells = [cell for row in grid.cells for cell in row if cell is not None]
-
-#     # Export outputs
-#     print("💾 Writing outputs...")
-
-#     save_subcatchments_wkt(f"{output_prefix}_subcatchments.wkt", cells)
-#     save_flowlines_wkt(f"{output_prefix}_routing.wkt", cells)
-
-#     elev_array = dem.array.copy()
-#     save_ascii_raster(f"{output_prefix}_elevation.asc", elev_array, dem.transform)
-
-#     save_swmm_inp(f"{output_prefix}.inp", cells)
-
-#     print("✅ Model run complete.")
-
-
-# def run_adaptive_dissolve(input_file: str, output_file: str, use_tiling=True):
-#     dissolve_subcatchments(input_file, output_file, use_tiling=use_tiling)
